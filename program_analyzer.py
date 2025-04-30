@@ -1,4 +1,3 @@
-
 class ProgramVerifierAndEquivalenceChecker:
     def __init__(self):
         # To keep track of latest versions for each variable.
@@ -106,13 +105,13 @@ class ProgramVerifierAndEquivalenceChecker:
                         "false_version": previous_versions.get(left_hand_side_var, 0)
                     })
 
-                     # Reverse to process in correct order
+        # Reverse to process in correct order. -- RECHECK THIS.
         loop_variable_versions.reverse()
         done_conditions = set()
         for change in loop_variable_versions:
             if change["condition"] not in done_conditions:
                 variable = change["variable"]
-                # Increment version for phi node
+                # Increment version for phi node.
                 self.variable_versions[variable] += 1
                 phi_var = self.new_variable_with_count(variable)
                 phi_line = (
@@ -144,7 +143,7 @@ class ProgramVerifierAndEquivalenceChecker:
                 self.ssa_lines.append(ssa_line)
 
             # while loop.
-            if line.startWith("while"):
+            if line.startswith("while"):
                 # Extract the condition which is between ( and ).
                 start = line.find("(")
                 end = line.find(")")
@@ -170,6 +169,20 @@ class ProgramVerifierAndEquivalenceChecker:
 
                 # Unroll while loop.
                 self.unroll_while_loop(condition, loop_body, unroll_depth)
+
+if __name__ == "__main__":
+    code_lines = [
+        "x := 0;",
+        "while (x < 4) {",
+        "    x := x + 1;",
+        "}",
+        "assert(x == 4);"
+    ]
+
+    verifier = ProgramVerifierAndEquivalenceChecker()
+    verifier.convert_into_ssa(code_lines)
+    for line in verifier.ssa_lines:
+        print(line)
 
                  
 
