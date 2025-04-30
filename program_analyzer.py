@@ -7,9 +7,13 @@ class ProgramVerifierAndEquivalenceChecker:
         # List to store ssa output.
         self.ssa_lines = []
 
-        def process_individual_line(self, line):
+        # List to store unrolled code lines.
+        self.unrolled_code_lines = []
 
-        def convert_into_ssa(self, code_lines):
-            for line in code_lines:
-                self.process_individual_line(line)
+    def process_individual_line(self, line):
+        print()
+
+    def convert_into_ssa(self, code_lines):
+        for line in code_lines:
+            self.process_individual_line(line)
 
