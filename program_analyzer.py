@@ -15,8 +15,8 @@ class ProgramVerifierAndEquivalenceChecker:
         self.condition_counter = 0
 
     # Function updates the variable to add the counter.
-    def new_variable_with_count(self, lefthandsideVar):
-        ssa_var = f"{lefthandsideVar}{self.variable_versions[lefthandsideVar]}"
+    def new_variable_with_count(self, left_hand_side_var):
+        ssa_var = f"{left_hand_side_var}{self.variable_versions[left_hand_side_var]}"
         return ssa_var
     
     # Helper function to get current version number of a variable.
@@ -94,25 +94,51 @@ class ProgramVerifierAndEquivalenceChecker:
                     else:
                         self.variable_versions[left_hand_side_var] = 0
 
-                    
+                    ssa_var = self.new_variable_with_count(left_hand_side_var)
+                    ssa_line = f"{ssa_var} := {right_hand_side_var}"
+                    self.ssa_lines.append(ssa_line)
+
+                    # Changes for backtracking.
+                    loop_variable_versions.append({
+                        "condition": condition_number,
+                        "variable": left_hand_side_var,
+                        "true_version": self.variable_versions[left_hand_side_var],
+                        "false_version": previous_versions.get(left_hand_side_var, 0)
+                    })
+
+                     # Reverse to process in correct order
+        loop_variable_versions.reverse()
+        done_conditions = set()
+        for change in loop_variable_versions:
+            if change["condition"] not in done_conditions:
+                variable = change["variable"]
+                # Increment version for phi node
+                self.variable_versions[variable] += 1
+                phi_var = self.new_variable_with_count(variable)
+                phi_line = (
+                    f"{phi_var} := φ{change['condition']} ? "
+                    f"{variable}{change['true_version']} : {variable}{change['false_version']}"
+                )
+                self.ssa_lines.append(phi_line)
+                done_conditions.add(change["condition"])
 
     def convert_into_ssa(self, code_lines):
         for i, line in enumerate(code_lines):
             # Assignments e.g x := 5
             if ":=" in line:
                 # Split the line at the first encounter of := to otain the LHS - the variable and the RHS.
-                lefthandsideVar, righthandsideEq = line.split(":=", 1)
+                left_hand_side_var, righthandsideEq = line.split(":=", 1)
                 # Using strip to remove any leading or trailing whitespaces.
-                lefthandsideVar = lefthandsideVar.strip()
+                left_hand_side_var = left_hand_side_var.strip()
                 righthandsideEq = righthandsideEq.strip()
                 # if the variable already exists in the dict then increment it's count,
                 # Otherwise at it in the dict with count starting from 0.
-                if lefthandsideVar in self.variable_versions:
-                    self.variable_versions[lefthandsideVar] += 1 
+                if left_hand_side_var in self.variable_versions:
+                    self.variable_versions[left_hand_side_var] += 1 
                 else:
-                    self.variable_versions[lefthandsideVar] = 0
+                    self.variable_versions[left_hand_side_var] = 0
                 
-                ssa_var = self.new_variable_with_count(lefthandsideVar)
+                ssa_var = self.new_variable_with_count(left_hand_side_var)
                 # Add the line in the Single Static Assignment Lines after combing both the LHS and the RHS.
                 ssa_line = f"{ssa_var} := {righthandsideEq}"
                 self.ssa_lines.append(ssa_line)
