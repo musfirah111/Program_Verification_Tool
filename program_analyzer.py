@@ -294,9 +294,6 @@ if __name__ == "__main__":
     ]
 
     verifier = ProgramVerifierAndEquivalenceChecker()
-    verifier.convert_into_ssa(code_lines2)
+    verifier.convert_into_ssa(code_lines)
     for line in verifier.ssa_lines:
         print(line)
-
-                 
-
