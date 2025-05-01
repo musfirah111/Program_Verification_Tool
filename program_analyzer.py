@@ -397,7 +397,11 @@ class SSAToSMTCoverter:
         smt_output.append("(get-model)")
 
         return smt_output
-
+    
+class ProgramEquivalenceChecker:
+    def __init__(self):
+        print()
+    
 
 if __name__ == "__main__":
     code_lines = [
