@@ -44,7 +44,7 @@ class ProgramVerifierAndEquivalenceChecker:
         return 4
     
     # Function to unroll while loop.
-    def unroll_while_loop(self, condition, loop_body, unroll_depth):
+    def unroll_while_loop_and_ssa(self, condition, loop_body, unroll_depth):
         # Store curret versions of variables before loop starts.
         saved_variable_versions = {}
         for variable in self.variable_versions:
@@ -105,20 +105,32 @@ class ProgramVerifierAndEquivalenceChecker:
                         "false_version": previous_versions.get(left_hand_side_var, 0)
                     })
 
-        # Reverse to process in correct order. -- RECHECK THIS.
+        # Reverse the list so we process changes in the right order.
         loop_variable_versions.reverse()
+
+        # For coniditons already handled.
         done_conditions = set()
+
+        # Iterate through every saved var change.
         for change in loop_variable_versions:
             if change["condition"] not in done_conditions:
+
+                # Get the variable name that changed.
                 variable = change["variable"]
-                # Increment version for phi node.
+
+                # Increase the version of that var.
                 self.variable_versions[variable] += 1
-                phi_var = self.new_variable_with_count(variable)
-                phi_line = (
-                    f"{phi_var} := φ{change['condition']} ? "
+
+                new_versioned_name = self.new_variable_with_count(variable)
+
+                # new_variable := φcondition_number ? true_version : false_version
+                cond_backtrack_line = (
+                    f"{new_versioned_name} := φ{change['condition']} ? "
                     f"{variable}{change['true_version']} : {variable}{change['false_version']}"
                 )
-                self.ssa_lines.append(phi_line)
+
+
+                self.ssa_lines.append(cond_backtrack_line)
                 done_conditions.add(change["condition"])
 
     def convert_into_ssa(self, code_lines):
@@ -168,7 +180,7 @@ class ProgramVerifierAndEquivalenceChecker:
                     j += 1
 
                 # Unroll while loop.
-                self.unroll_while_loop(condition, loop_body, unroll_depth)
+                self.unroll_while_loop_and_ssa(condition, loop_body, unroll_depth)
 
 if __name__ == "__main__":
     code_lines = [
