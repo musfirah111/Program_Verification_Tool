@@ -35,11 +35,10 @@ class ProgramVerifierAndEquivalenceChecker:
                     return int(right_side)
                 
         if '>' in condition_line:
-            parts = condition_line.split('>')
             if len(parts) == 2:
-                left_side = parts[0]
-                if left_side.isdigit():
-                    return int(left_side)
+                right_side = parts[1]
+                if right_side.isdigit():
+                    return int(right_side)
                 
         return 4
     
