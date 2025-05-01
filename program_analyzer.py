@@ -272,7 +272,91 @@ class ProgramVerifierAndEquivalenceChecker:
 
             i += 1
 
+# Class that changes SSA into SMT code.
+class SSAToSMTCoverter:
+    def __init__(self):
+
+        # Format: {'ssa_variable_1': 'smt_variable_1',
+        #          'ssa_variable_2': 'smt_variable_2'}
+        # Example: {'y0': 'y0', 
+        #           '@1': 'v1'}
+        self.smt_variables = {}
+
+        # Counter for unique conditions.
+        self.new_condition_counter = 0
+
+        # List to store the SMT assertions
+        self.smt_assertions = []
+
+    # Function to convert ssa assignment line in smt code.
+    def convert_assignment_line_in_smt(self, ssa_line):
+        condition_representation = "φ"
+
+        left_part, right_part = ssa_line.split(":=")
+        left_part = left_part.strip()
+        right_part = right_part.strip()
+
+        # CHeck if it is a conditional assignment (has ?)
+        # x5 := cond1 ? y : z
+        if "?" in right_part:
+            # Split the right part into condition and the other part.
+            right_further_parts =  right_part.split("?")
+            condition = right_further_parts[0].strip()
+            remaining_part = right_further_parts[1].strip()
+
+            # From the other part (y : z), extract true part (y) and false part (z)
+            true_false_part = remaining_part.split(":")
+            true_part = true_false_part[0].strip()
+            false_part = true_false_part[1].strip()
+
+            # Convert condition in smt.
+            if condition.startswith(condition_representation):
+                self.new_condition_counter += 1
+                new_cond_var = f"cond{self.new_condition_counter}"
+                self.smt_variables[condition] = new_cond_var
+                condition_variable = new_cond_var
             
+            # Create SMT assertion for conditional.
+            smt_line = f"(assert (= {left_part} (ite {condition_variable} {true_part} {false_part})))"
+            self.smt_assertions.append(smt_line)
+
+        else:
+            # Regular assignment: x := y + z or x := 5
+            smt_line = f"(assert (= {left_part} {right_part}))"
+            self.smt_assertions.append(smt_line)
+
+    # Function to convert ssa into smt.
+    def convert_ssa_to_smt(self, ssa_lines):
+        # Iterate through every line in ssa.
+        for line in ssa_lines:
+            if ':=' in line:
+                parts = line.split(':=')
+                left_part = parts[0]
+                left_part = left_part.strip() # Get the assigned variable.
+
+                # Add this variable to smt variables if it is not already present there.
+                if left_part not in self.smt_variables:
+                    self.smt_variables[left_part] = left_part
+        
+        # Conert ssa assignment line to smt code.
+        for line in ssa_lines:
+            if ':=' in line:
+                self.convert_assignment_line_in_smt(line)
+
+    def get_smt(self):
+        smt_output = []
+
+        for var in self.smt_variables.values():
+            smt_output.append(f"(declare-const {var} Int)")
+
+        for assertion in self.smt_assertions:
+            smt_output.append(assertion)
+
+        smt_output.append("(check-sat)")
+        smt_output.append("(get-model)")
+
+        return smt_output
+
 
 if __name__ == "__main__":
     code_lines = [
@@ -296,4 +380,11 @@ if __name__ == "__main__":
     verifier = ProgramVerifierAndEquivalenceChecker()
     verifier.convert_into_ssa(code_lines)
     for line in verifier.ssa_lines:
+        print(line)
+
+    # Convert to SMT
+    converter = SSAToSMTCoverter()
+    converter.convert_ssa_to_smt(verifier.ssa_lines)
+    smt_output = converter.get_smt()
+    for line in smt_output:
         print(line)
