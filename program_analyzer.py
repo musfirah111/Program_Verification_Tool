@@ -136,6 +136,113 @@ class ProgramVerifierAndEquivalenceChecker:
                 self.ssa_lines.append(cond_backtrack_line)
                 done_conditions.add(change["condition"])
 
+    # function to unrol nested for loop 
+    def unroll_for_loop_and_ssa(self, condition, loop_body, unroll_depth):
+        # Store current versions of variables before loop starts.
+        list_of_variables_versions = {}
+
+        # store condition variables numbers
+        condition_variables_numbers = []
+
+        # store condition variables numbers
+        condition_variables_numbers = []
+
+        for variable in self.variable_versions:
+            list_of_variables_versions[variable] = self.get_current_variable_version(variable)
+
+        # Parse the for loop condition (i := 0; i < n; i := i + 1)
+        parts = condition.split()
+        init_statement = parts[0].strip()  # i := 0 or i := 1
+        loop_condition = parts[1].strip()  # i < n
+        incr_statement = parts[2].strip()  # i := i + 1
+
+        # Handle loop initialization
+        ssa_line = self.ssa_assignment(init_statement)
+        self.ssa_lines.append(ssa_line)
+        loop_variable = init_statement.split(':=', 1)[0].strip()
+        
+        # unroll the loop
+        for i in range(unroll_depth):
+            self.condition_counter += 1
+            condition_number = self.condition_counter
+
+            # Update condition with current variable versions
+            cond_parts = condition.split()
+            updated_condition = []
+
+            # Handle both < and <= conditions
+            for part in cond_parts:
+                if part in self.variable_versions:
+                    version = self.get_current_variable_version(part)
+                    updated_condition.append(f"{part}{version}")
+                elif part in ['<', '<=']: 
+                    updated_condition.append(part)
+                else:
+                    updated_condition.append(part)
+            
+            condition_new = " ".join(updated_condition)
+            condition_line = f"φ{condition_number} = ({condition_new})"
+            self.ssa_lines.append(condition_line)
+        
+            # loop body 
+            for line in loop_body:
+                # handle if statement
+                if "if" in line:
+                    # extract the condition
+                    start = line.find("(")
+                    end = line.find(")")
+                    if_condition = line[start + 1:end].strip()
+
+                    # handle if body
+                    if "[" in line and "]" in line:
+                        # Find which comparison operator is used
+                        for cond in ['<', '>', '<=', '>=', '==', '!=']:
+                            if cond in if_condition:
+                                parts = if_condition.split(cond)
+                                left_array = parts[0].strip()
+                                right_array = parts[1].strip()
+
+                                left_array_name = left_array.split("[")[0].strip()  # e.g arr from arr[j]
+                                left_index = left_array.split("[")[1].split("]")[0].strip()
+                                if left_index in self.variable_versions:
+                                    left_index = f"{left_index}{self.get_current_variable_version(left_index)}"
+                                # create ssa array
+                                left_array_access = f"{left_array_name}{self.get_current_variable_version(left_array_name)}_{left_index}"
+                
+                                # Handle right array access
+                                right_array_name = right_array.split("[")[0].strip()
+                                right_index = right_array.split("[")[1].split("]")[0].strip()
+                                if right_index in self.variable_versions:
+                                    right_index = f"{right_index}{self.get_current_variable_version(right_index)}"
+                                right_array_access = f"{right_array_name}{self.get_current_variable_version(right_array_name)}_{right_index}"
+                                    
+                                # Create the condition line
+                                self.condition_counter += 1
+                                condition_number = self.condition_counter
+                                condition_line = f"φ{condition_number} = ({left_array_access} > {right_array_access})"
+                                self.ssa_lines.append(condition_line)
+
+                elif "temp" in line:
+                        ssa_line, var = self.ssa_assignment(line)
+                        self.ssa_lines.append(ssa_line)  
+
+                # if ":=" in line:
+
+                #     # handle array indexing
+                #     if "[" in line and "]" in line:
+                #         left_part, right_part = line.split(":=")
+                #         left_part = left_part.strip()
+                #         right_part = right_part.strip()
+
+                #         # array left side
+                #         array = left_part
+
+                        
+                        
+
+                
+        
+
     def ssa_assignment(self, line):
         # Split the line at the first encounter of := to otain the LHS - the variable and the RHS.
         equation = line.split(":=", 1)
@@ -308,8 +415,31 @@ class ProgramVerifierAndEquivalenceChecker:
 
             # Nested for loop and arrays.
             if line.startswith("for"):
-                print()
-                # self.ssa_lines.append(ssa_line)
+                # Extract the condition which is between ( and )
+                start = line.find("(")
+                end = line.find(")")
+                condition = line[start + 1:end]
+
+                # Get loop body
+                loop_body = []
+                bracket_count = 1
+                j = i + 1
+                while j < len(code_lines) and bracket_count > 0:
+                    loop_line = code_lines[j]
+                    if "{" in loop_line:
+                        bracket_count += 1
+                    if "}" in loop_line:
+                        bracket_count -= 1
+                    if bracket_count > 0:
+                        loop_body.append(loop_line)
+                    j += 1
+
+                # Extract unroll depth from condition
+                unroll_depth = self.extract_unroll_depth(condition)
+                
+                # Unroll the for loop
+                self.unroll_for_loop_and_ssa(condition, loop_body, unroll_depth)
+                i = j  # Skip to the end of the loop
 
             i += 1
 
