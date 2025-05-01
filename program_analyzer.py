@@ -1,3 +1,5 @@
+from z3 import Solver, Int, If, sat
+
 class ProgramVerifierAndEquivalenceChecker:
     def __init__(self):
         # To keep track of latest versions for each variable.
@@ -493,6 +495,11 @@ class SSAToSMTCoverter:
 
         else:
             # Regular assignment: x := y + z or x := 5
+            right_part = right_part.rstrip(';')
+            
+            # Convert arithmetic operations to SMT prefix notation.
+            right_part = convert_infix_to_prefix(right_part)
+            
             smt_line = f"(assert (= {left_part} {right_part}))"
             self.smt_assertions.append(smt_line)
 
@@ -527,9 +534,113 @@ class SSAToSMTCoverter:
         smt_output.append("(get-model)")
 
         return smt_output
+    
+class ProgramEquivalenceChecker:
+    def __init__(self):
+        print()
 
+def convert_infix_to_prefix(expression):
+    expression = expression.strip()
+
+    if '+' in expression:
+        parts = expression.split('+')
+        operator = '+'
+    elif '-' in expression:
+        parts = expression.split('-')
+        operator = '-'
+    elif '*' in expression:
+        parts = expression.split('*')
+        operator = '*'
+    else:
+        return expression 
+
+    var1 = parts[0].strip()
+    var2 = parts[1].strip()
+
+    return f"({operator} {var1} {var2})"
+
+
+class SMTSolver:
+    def __init__(self):
+        # Make a z3 solver instance.
+        self.z3_solver = Solver()
+
+    def smt_solver(self, smt_code_lines):
+        for line in smt_code_lines:
+            # If line is a variable declaration.
+            if line.startswith('(declare-const'):
+                # (declare-const x Int)
+                line_without_brackets = line[1:-1] # declare-const x Int
+                line_parts = line_without_brackets.split() # 3 parts: p1: declare-const [0], p2: x [1], p3: Int [2]
+
+                variable_name = line_parts[1] # x
+                data_type = line_parts[2] # Int
+
+                # z3 variable making.
+                if data_type == "Int":
+                    #  smt_variable = Int("x")
+                    smt_variable = Int(variable_name)
+
+                # Save varible using its name to be used later.
+                # self.x = Int("x")
+                # setattr(self, variable_name, smt_variable)
+
+            # If line is an assert statement.
+            elif line.startswith('(assert'):
+                # (assert(= x 10))
+                assert_without_brackets = line[1:-1] # assert(= x 10)
+                expression = assert_without_brackets.split("=", 1)  # Split by '='
+
+                if len(expression) == 2:
+                    left_expr = expression[0].strip()
+                    right_expr = expression[1].strip()
+
+                    # Convert these expressions into proper Z3 syntax.
+                    if right_expr.isdigit():  # if it's a number, we directly use it.
+                        self.z3_solver.add(Int(left_expr) == int(right_expr))
+                    else:  # otherwise it's a variable or an expression.
+                        self.z3_solver.add(Int(left_expr) == Int(right_expr))
+
+        # Check results.
+        result = self.z3_solver.check()
+
+        if result == sat:
+            # Get the model (solution) from the solver.
+            model = self.z3_solver.model()
+
+            # Create a dictionary to hold variable values.
+            variable_info = {}
+
+            # Loop through each variable in the model.
+            for variable in model:
+                # Convert variable to string and get its value.
+                variable_info[str(variable)] = model[variable]
+
+            # Prepare the final result
+            result_final = {
+                'status': 'Satisfiable',
+                'model': variable_info
+            }
+        
+        else:
+            result_final = {
+                'status': 'Unsatisfiable',
+                'model': None
+            }
+
+        return result_final
+
+def code_lines_to_string_converter(code_lines_list):
+    result = "" 
+
+    for line in code_lines_list:
+        clean_line = line.strip() 
+        result += clean_line + "\n" 
+
+    return result
 
 if __name__ == "__main__":
+    # Example code to test SSA and SMT generation.
     code_lines = [
         "x := 0;",
         "while (x < 4) {",
@@ -548,14 +659,30 @@ if __name__ == "__main__":
     "assert(y > 0);"
     ]
 
+    print("=== Program Verifier & SSA Conversion ===")
     verifier = ProgramVerifierAndEquivalenceChecker()
-    verifier.convert_into_ssa(code_lines)
+    verifier.convert_into_ssa(code_lines2)
+
+    print("\nSSA Code:")
     for line in verifier.ssa_lines:
         print(line)
 
-    # Convert to SMT
+    print("\n=== SMT Conversion ===")
     converter = SSAToSMTCoverter()
     converter.convert_ssa_to_smt(verifier.ssa_lines)
     smt_output = converter.get_smt()
+
+    print("\nSMT-LIB Code:")
     for line in smt_output:
         print(line)
+
+    print("\n=== Solving SMT with Z3 ===")
+    solver = SMTSolver()
+    result = solver.smt_solver(smt_output)
+
+    print("\nSMT Solver Result:")
+    print(f"Status: {result['status']}")
+    if result['model']:
+        print("Model:")
+        for var, val in result['model'].items():
+            print(f"  {var} = {val}")
