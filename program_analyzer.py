@@ -35,6 +35,7 @@ class ProgramVerifierAndEquivalenceChecker:
                     return int(right_side)
                 
         if '>' in condition_line:
+            parts = condition_line.split('>')
             if len(parts) == 2:
                 right_side = parts[1]
                 if right_side.isdigit():
@@ -166,6 +167,42 @@ class ProgramVerifierAndEquivalenceChecker:
         ssa_line = f"{ssa_var} := {righthandsideEq}"
 
         return ssa_line, lefthandsideVar
+    
+    # Function to extract the loop conditions and also keep start of the iterator intialization.
+    def extracting_loop_condtions(self, condition):
+        # Extracting the intialization of iterator, condition and the incrementor.
+        start = line.find('(') + 1
+        end = line.find(')', start)
+        # i = 0; i < n; i++
+        inside = line[start:end]
+        
+        # Breaking the condition into three parts.
+        parts = []
+
+        for part in inside.split(';'):
+            parts.append(part.strip())
+        
+        # x < 5 
+        intialization = part[0]
+        condition = parts[1]
+
+        # split at < or > condition.
+        if '<' in condition:
+            lefthandsideVar = condition.split('<', 1)
+
+        if lefthandsideVar in self.variable_versions:
+            self.variable_versions[lefthandsideVar] += 1 
+        else:
+            self.variable_versions[lefthandsideVar] = 0
+        
+        ssa_var = self.new_variable_with_count(lefthandsideVar)
+       
+
+        # Add the line in the Single Static Assignment Lines after combing both the LHS and the RHS.
+        # ssa_line = f"{ssa_var} < {righthandsideEq}"
+
+        #return ssa_line, lefthandsideVar
+        return lefthandsideVar
 
     def convert_into_ssa(self, code_lines):
         i = 0
@@ -268,6 +305,11 @@ class ProgramVerifierAndEquivalenceChecker:
 
                 # Unroll while loop.
                 self.unroll_while_loop_and_ssa(condition, loop_body, unroll_depth)
+
+            # Nested for loop and arrays.
+            if line.startswith("for"):
+                print()
+                # self.ssa_lines.append(ssa_line)
 
             i += 1
 
