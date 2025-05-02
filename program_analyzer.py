@@ -190,6 +190,7 @@ class ProgramVerifierAndEquivalenceChecker:
             ssa_var = self.new_variable_with_count(variable_name)
             ssa_line = f"{ssa_var} := {constant_value}" 
             self.ssa_lines.append(ssa_line)
+            return ssa_line
 
 
     # Function to create phi assignment for loop conditions
@@ -229,6 +230,7 @@ class ProgramVerifierAndEquivalenceChecker:
         # Create phi assignment
         phi_assignment = f"{phi_var} = ({updated_condition})" 
         self.ssa_lines.append(phi_assignment) 
+        return phi_assignment
 
 
 
@@ -247,104 +249,75 @@ class ProgramVerifierAndEquivalenceChecker:
         loop_condition = parts[1].strip()  # i < n
         incr_statement = parts[2].strip()  # i := i + 1
 
-         # Handle the initialization statement
-        self.handle_init_statement(init_statement)
 
-        # Create phi assignment for the outer loop condition
-        self.create_phi_assignment(loop_condition, self.condition_counter)
+        ssa_init_line = self.handle_init_statement(init_statement)
+        ssa_phi_line = self.create_phi_assignment(loop_condition, self.condition_counter)
+
+        
+        # print("SSA Init Line:", ssa_init_line)
+        # print("SSA Phi Line:", ssa_phi_line)
 
 
         # Unroll the inner loop   (inner loop starts here)
         for i in range(unroll_depth):
-            # self.condition_counter += 1
-            # condition_number = self.condition_counter
+            inner_condition = ""  # for inner loop 
 
-            # # Update condition with current variable versions
-            # cond_parts = condition.split()
-            # updated_condition = []
-
-            # # Handle both < and <= conditions
-            # for part in cond_parts:
-            #     if part in self.variable_versions:
-            #         version = self.get_current_variable_version(part)
-            #         updated_condition.append(f"{part}{version}")
-            #     elif part in ['<', '<=']: 
-            #         updated_condition.append(part)
-            #     else:
-            #         # Only process the relevant part of the condition
-            #         if part.startswith('n'):
-            #             updated_condition.append(part) 
-            #         elif part.startswith('-'):
-            #             updated_condition.append(part) 
-            #         elif part.isdigit() or part.isidentifier():  # Keep numbers and identifiers
-            #             updated_condition.append(part)
-
-            # # Join the updated condition parts
-            # condition_new = " ".join(updated_condition)
-            # condition_line = f"φ{condition_number} = ({condition_new})"
-            # self.ssa_lines.append(condition_line)
-
-            # print(f"Condition line for iteration {i}: {condition_line}")
-
-            # # Store current versions of array variables for backtracking
-            # current_array_versions = {}
-            # for variable in self.variable_versions:
-            #     if "a" in variable:  
-            #         current_array_versions[variable] = self.variable_versions[variable]
-
-            # Unroll inner loop for each iteration of the outer loop
             inner_loop_body = []  
             for line in loop_body:
-                if line.startswith("for"):
-                    # Extract the inner loop condition and body
-                    start = line.find("(")
-                    end = line.find(")")
-                    if start != -1 and end != -1: 
-                        inner_condition = line[start + 1:end].strip()  
-                        
-                        # Get inner loop body
-                        inner_bracket_count = 1
-                        k = loop_body.index(line) + 1  # Start after the inner loop line
-                        while k < len(loop_body) and inner_bracket_count > 0:
-                            inner_line = loop_body[k]
-                            if "{" in inner_line:
-                                inner_bracket_count += 1
-                            if "}" in inner_line:
-                                inner_bracket_count -= 1
-                            if inner_bracket_count > 0:
-                                inner_loop_body.append(inner_line)
-                            k += 1
-                        
-                        # Extract unroll depth for the inner loop
-                        inner_unroll_depth = self.extract_unroll_depth(inner_condition)
-                        
-                        # Unroll the inner loop
-                        self.unroll_for_loop_and_ssa(inner_condition, inner_loop_body, inner_unroll_depth)
 
-
-
-                # parsing inner for loop condition
+                line = line.strip()
+                # print("Current line:", line)  
                 
-                inner_parts = [part.strip() for part in line.split(";")]  # Strip spaces from each part
-                if len(inner_parts) != 3:
-                    raise ValueError(f"Invalid inner loop format: {line}")
+                if line.startswith("for"):
+                    # print("entered for loop")
+                    # Extract the inner loop condition and body
+                    start = line.find('(') + 1
+                    end = line.find(')', start)
 
-                inner_init_statement = inner_parts[0]  # j := 0
-                inner_loop_condition = inner_parts[1]  # j < n - i - 1
-                inner_incr_statement = inner_parts[2]  # j := j + 1
+                    inner_condition = line[start:end].strip()
 
-                # Handle the inner initialization statement
+                    parts = [part.strip() for part in inner_condition.split(';')] 
+
+                    # Check if we have exactly three parts
+                    if len(parts) != 3:
+                        raise ValueError(f"Invalid inner loop format: {line}")
+
+                    inner_init_statement = parts[0]  # j := 0
+                    inner_loop_condition = parts[1]  # j < n - i - 1
+                    inner_incr_statement = parts[2]  # j := j + 1
+
+                    # print("part 0: ", parts[0])
+                    # print("part 1: ", parts[1])
+                    # print("part 2: ", parts[2])
+
+                    # Get inner loop body
+                    inner_bracket_count = 1
+                    # print("loop_body contents:", loop_body)
+                    k = -1  # Initialize k
+                    for i, l in enumerate(loop_body):
+                        if l.strip() == line.strip(): 
+                            k = i + 1  # Start after the inner loop line
+                            break
+
+                    if k == -1:
+                        raise ValueError(f"Line not found in loop_body: {line}")
+
+                    while k < len(loop_body) and inner_bracket_count > 0:
+                        inner_line = loop_body[k]
+                        if "{" in inner_line:
+                            inner_bracket_count += 1
+                        if "}" in inner_line:
+                            inner_bracket_count -= 1
+                        if inner_bracket_count > 0:
+                            inner_loop_body.append(inner_line)
+                        k += 1
+                    
+                    # Extract unroll depth for the inner loop
+                    inner_unroll_depth = self.extract_unroll_depth(inner_condition)
+                    print("inner_unroll_depth: ", inner_unroll_depth)
+
                 self.handle_init_statement(inner_init_statement)
-
-                # Create phi assignment for the inner loop condition
                 self.create_phi_assignment(inner_loop_condition, self.condition_counter)               
-
-                # Ensure the increment statement is correctly formatted
-                if not inner_incr_statement.startswith("j := "):
-                    raise ValueError(f"Invalid increment statement: {inner_incr_statement}")
-
-                # Handle the inner increment statement
-                self.handle_increment_statement(inner_incr_statement)
 
                 # Handle other lines in the loop body
                 if "if" in line:
@@ -355,6 +328,7 @@ class ProgramVerifierAndEquivalenceChecker:
 
                     print(f"Processing if condition: {if_condition}")
 
+#  CHECK FROM HERE====================================================================
                     # handle if body
                     if "[" in line and "]" in line:
                         # which comparison operator is used
@@ -651,7 +625,8 @@ class ProgramVerifierAndEquivalenceChecker:
 
                 # Extract unroll depth from condition
                 unroll_depth = self.extract_unroll_depth(condition)
-                
+                # print("unroll:", unroll_depth)
+            
                 # Unroll the for loop
                 self.unroll_for_loop_and_ssa(condition, loop_body, unroll_depth)
 
