@@ -190,7 +190,7 @@ class ProgramVerifierAndEquivalenceChecker:
             ssa_var = self.new_variable_with_count(variable_name)
             ssa_line = f"{ssa_var} := {constant_value}" 
             self.ssa_lines.append(ssa_line)
-            return ssa_line
+     
 
 
     # Function to create phi assignment for loop conditions
@@ -230,7 +230,7 @@ class ProgramVerifierAndEquivalenceChecker:
         # Create phi assignment
         phi_assignment = f"{phi_var} = ({updated_condition})" 
         self.ssa_lines.append(phi_assignment) 
-        return phi_assignment
+        
 
 
 
@@ -250,12 +250,9 @@ class ProgramVerifierAndEquivalenceChecker:
         incr_statement = parts[2].strip()  # i := i + 1
 
 
-        ssa_init_line = self.handle_init_statement(init_statement)
-        ssa_phi_line = self.create_phi_assignment(loop_condition, self.condition_counter)
+        self.handle_init_statement(init_statement)
+        self.create_phi_assignment(loop_condition, self.condition_counter)
 
-        
-        # print("SSA Init Line:", ssa_init_line)
-        # print("SSA Phi Line:", ssa_phi_line)
 
 
         # Unroll the inner loop   (inner loop starts here)
@@ -278,9 +275,9 @@ class ProgramVerifierAndEquivalenceChecker:
 
                     parts = [part.strip() for part in inner_condition.split(';')] 
 
-                    # Check if we have exactly three parts
-                    if len(parts) != 3:
-                        raise ValueError(f"Invalid inner loop format: {line}")
+                    # # Check if we have exactly three parts
+                    # if len(parts) != 3:
+                    #     raise ValueError(f"Invalid inner loop format: {line}")
 
                     inner_init_statement = parts[0]  # j := 0
                     inner_loop_condition = parts[1]  # j < n - i - 1
@@ -299,8 +296,8 @@ class ProgramVerifierAndEquivalenceChecker:
                             k = i + 1  # Start after the inner loop line
                             break
 
-                    if k == -1:
-                        raise ValueError(f"Line not found in loop_body: {line}")
+                    # if k == -1:
+                    #     raise ValueError(f"Line not found in loop_body: {line}")
 
                     while k < len(loop_body) and inner_bracket_count > 0:
                         inner_line = loop_body[k]
@@ -313,8 +310,8 @@ class ProgramVerifierAndEquivalenceChecker:
                         k += 1
                     
                     # Extract unroll depth for the inner loop
-                    inner_unroll_depth = self.extract_unroll_depth(inner_condition)
-                    print("inner_unroll_depth: ", inner_unroll_depth)
+                    self.extract_unroll_depth(inner_condition)
+
 
                 self.handle_init_statement(inner_init_statement)
                 self.create_phi_assignment(inner_loop_condition, self.condition_counter)               
@@ -326,9 +323,8 @@ class ProgramVerifierAndEquivalenceChecker:
                     end = line.find(")")
                     if_condition = line[start + 1:end].strip()
 
-                    print(f"Processing if condition: {if_condition}")
+                    # print(f"Processing if condition: {if_condition}")
 
-#  CHECK FROM HERE====================================================================
                     # handle if body
                     if "[" in line and "]" in line:
                         # which comparison operator is used
@@ -338,27 +334,34 @@ class ProgramVerifierAndEquivalenceChecker:
                                 left_array = parts[0].strip()
                                 right_array = parts[1].strip()
 
-                                left_array = left_array.split("[")[0].strip()  # e.g arr from arr[j]
-                                left_index = left_array.split("[")[1].split("]")[0].strip()
-                                if left_index in self.variable_versions:
-                                    left_index = f"{left_index}{self.get_current_variable_version(left_index)}"
-                                # create ssa array
-                                left_array_access = f"{left_array}{self.get_current_variable_version(left_array)}_{left_index}"
+                                # Check if left_array contains the expected format
+                                if "[" in left_array:
+                                    left_array_parts = left_array.split("[")
+                                    left_array = left_array_parts[0].strip()  # e.g., arr from arr[j]
+                                    left_index = left_array_parts[1].split("]")[0].strip()
+                                    if left_index in self.variable_versions:
+                                        left_index = f"{left_index}{self.get_current_variable_version(left_index)}"
+                                    # create ssa array
+                                    left_array_access = f"{left_array}{self.get_current_variable_version(left_array)}_{left_index}"
+
+               
                 
                                 # Handle right array access
-                                right_array = right_array.split("[")[0].strip()
-                                right_index = right_array.split("[")[1].split("]")[0].strip()
+                                right_array_parts = right_array.split("[")
+                                right_array = right_array_parts[0].strip()
+                                right_index = right_array_parts[1].split("]")[0].strip()
                                 if right_index in self.variable_versions:
                                     right_index = f"{right_index}{self.get_current_variable_version(right_index)}"
                                 right_array_access = f"{right_array}{self.get_current_variable_version(right_array)}_{right_index}"
-                                    
+
+                              
                                 # Create the condition line
                                 self.condition_counter += 1
                                 condition_number = self.condition_counter
                                 condition_line = f"φ{condition_number} = ({left_array_access} > {right_array_access})"
                                 self.ssa_lines.append(condition_line)
 
-                                print(f"Generated condition line: {condition_line}")
+                                # print(f"Generated condition line: {condition_line}")
 
                 elif "temp" in line:
                         ssa_line, var = self.ssa_assignment(line)
@@ -373,19 +376,22 @@ class ProgramVerifierAndEquivalenceChecker:
                         right_part = right_part.strip()
 
                         # array left side
-                        left_array = left_part.split("[")[0].strip()
-                        left_index = left_part.split("[")[1].split("]")[0].strip()
+                        if "[" in left_part:
+                            left_array_parts = left_part.split("[")
+                            left_array = left_array_parts[0].strip()
+                            left_index = left_array_parts[1].split("]")[0].strip()
                         if left_index in self.variable_versions:
                             left_index = f"{left_index}{self.get_current_variable_version(left_index)}"
                         left_array_access = f"{left_array}{self.get_current_variable_version(left_array)}_{left_index}" #ssa array
 
                         # array right side
                         if "[" in right_part and "]" in right_part:
-                            right_array = right_part.split("[")[0].strip()
-                            right_index_expression = right_part.split("[")[1].split("]")[0].strip()
+                            right_array_parts = right_part.split("[")
+                            right_array = right_array_parts[0].strip()  
+                            right_index_expression = right_array_parts[1].split("]")[0].strip()
 
                             # split j(version) +1
-                            index_parts = right_index_expression.split("+").strip()
+                            index_parts = [part.strip() for part in right_index_expression.split("+")]
                             processed_index_parts = []
 
                             # check variable version for variabe e.g j in j+1
@@ -404,7 +410,7 @@ class ProgramVerifierAndEquivalenceChecker:
                             ssa_line = f"{left_array_access} := {right_array_access}"
                             self.ssa_lines.append(ssa_line)
 
-                            print(f"SSA assignment: {ssa_line}")
+                            # print(f"SSA assignment: {ssa_line}")
                         
                         # if expressions have temp in it
                         elif right_part == "temp":
