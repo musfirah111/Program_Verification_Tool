@@ -164,8 +164,6 @@ class ProgramVerifierAndEquivalenceChecker:
 
                     if constant_part.isdigit():
                         increment_value = int(constant_part)
-                    else:
-                        raise ValueError(f"Invalid increment expression: {increment_expression}")
 
                     incremented_value = f"{incremented_variable}{increment_version} + {increment_value}"
 
@@ -238,7 +236,7 @@ class ProgramVerifierAndEquivalenceChecker:
     def unroll_for_loop_and_ssa(self, condition, loop_body, unroll_depth):
         # Store current versions of variables before loop starts.
         list_of_variables_versions = {}
-        loop_variable_versions = []  # To store versions for backtracking
+        # loop_variable_versions = []  # To store versions for backtracking
 
         for variable in self.variable_versions:
             list_of_variables_versions[variable] = self.get_current_variable_version(variable)
@@ -269,6 +267,8 @@ class ProgramVerifierAndEquivalenceChecker:
                     end = line.find(')', start)
                     inner_condition = line[start:end].strip()
                     parts = [part.strip() for part in inner_condition.split(';')] 
+
+                    self.extract_unroll_depth(inner_condition)
 
                     # # Check if we have exactly three parts
                     # if len(parts) != 3:
@@ -304,8 +304,9 @@ class ProgramVerifierAndEquivalenceChecker:
                             inner_loop_body.append(inner_line)
                         k += 1
                     
-                    self.extract_unroll_depth(inner_condition)
-
+                    
+            # Process inner loop unrolling
+            # for j in range(unroll_depth):  
                 # Handle init and phi without printing
                 self.handle_init_statement(inner_init_statement)
                 self.create_phi_assignment(inner_loop_condition, self.condition_counter)               
@@ -316,8 +317,6 @@ class ProgramVerifierAndEquivalenceChecker:
                     end = line.find(")")
                     if_condition = line[start + 1:end].strip()
 
-                    # print(f"Processing if condition: {if_condition}")
-
                     if "[" in line and "]" in line:
                         for cond in ['<', '>', '<=', '>=', '==', '!=']:
                             if cond in if_condition:
@@ -326,20 +325,22 @@ class ProgramVerifierAndEquivalenceChecker:
                                 right_array = parts[1].strip()
 
                                 if "[" in left_array:
+                                    # Parse array accesses
                                     left_array_parts = left_array.split("[")
-                                    left_array = left_array_parts[0].strip()
+                                    left_array_name = left_array_parts[0].strip()
                                     left_index = left_array_parts[1].split("]")[0].strip()
-                                    if left_index in self.variable_versions:
-                                        left_index = f"{left_index}{self.get_current_variable_version(left_index)}"
-                                    left_array_access = f"{left_array}{self.get_current_variable_version(left_array)}[{left_index}]"
-
-                                    # Handle right array access
+                                    
                                     right_array_parts = right_array.split("[")
-                                    right_array = right_array_parts[0].strip()
+                                    right_array_name = right_array_parts[0].strip()
                                     right_index = right_array_parts[1].split("]")[0].strip()
-                                    if right_index in self.variable_versions:
-                                        right_index = f"{right_index}{self.get_current_variable_version(right_index)}"
-                                    right_array_access = f"{right_array}{self.get_current_variable_version(right_array)}[{right_index}]"
+
+                                    # Get current loop indices
+                                    i_index = self.get_current_variable_version('i')
+                                    j_index = self.get_current_variable_version('j')
+
+                                    # Create array accesses with loop indices
+                                    left_array_access = f"{left_array_name}{i_index}_{j_index}"
+                                    right_array_access = f"{right_array_name}{i_index}_{j_index + 1}"
 
                                     # Create the condition line
                                     self.condition_counter += 1
@@ -347,15 +348,25 @@ class ProgramVerifierAndEquivalenceChecker:
                                     condition_line = f"φ{condition_number} = ({left_array_access} > {right_array_access})"
                                     self.ssa_lines.append(condition_line)
 
-                                    # Add temp variable and array swapping
-                                    temp_var = f"temp{self.get_current_variable_version('temp')}"
-                                    self.ssa_lines.append(f"{temp_var} = {left_array_access}")
-                                    self.ssa_lines.append(f"{left_array_access} = {right_array_access}")
-                                    self.ssa_lines.append(f"{right_array_access} = {temp_var}")
+                                    # Add temp variable
+                                    temp_version = self.get_current_variable_version('temp')
+                                    temp_var = f"temp{temp_version}"
+                                    self.ssa_lines.append(f"{temp_var} := {left_array_access}")
+                                    
+                                    # Increment versions for the swap
+                                    self.variable_versions[left_array_name] = self.get_current_variable_version(left_array_name) + 1
+                                    self.variable_versions[right_array_name] = self.get_current_variable_version(right_array_name) + 1
+                                    
+                                    # Create new array accesses with incremented versions
+                                    new_left_access = f"{left_array_name}{i_index}_{j_index + 1}"
+                                    new_right_access = f"{right_array_name}{i_index}_{j_index + 2}"
+                                    
+                                    self.ssa_lines.append(f"{new_left_access} := {right_array_access}")
+                                    self.ssa_lines.append(f"{new_right_access} := {temp_var}")
 
                                     # Add backtracking assignments
-                                    self.ssa_lines.append(f"{left_array_access} = @{condition_number} ? {left_array_access} : {left_array_access}")
-                                    self.ssa_lines.append(f"{right_array_access} = @{condition_number} ? {right_array_access} : {right_array_access}")
+                                    self.ssa_lines.append(f"{new_left_access} := φ{condition_number} ? {new_left_access} : {left_array_access}")
+                                    self.ssa_lines.append(f"{new_right_access} := φ{condition_number} ? {new_right_access} : {right_array_access}")
 
                 elif "temp" in line:
                     ssa_line, var = self.ssa_assignment(line)
@@ -372,40 +383,34 @@ class ProgramVerifierAndEquivalenceChecker:
                             left_array_parts = left_part.split("[")
                             left_array = left_array_parts[0].strip()
                             left_index = left_array_parts[1].split("]")[0].strip()
-                            if left_index in self.variable_versions:
-                                left_index = f"{left_index}{self.get_current_variable_version(left_index)}"
-                            left_array_access = f"{left_array}{self.get_current_variable_version(left_array)}[{left_index}]"
+                            
+                            # Get current loop indices
+                            i_index = self.get_current_variable_version('i')
+                            j_index = self.get_current_variable_version('j')
+                            
+                            # Use new versioning scheme
+                            left_array_access = f"{left_array}{i_index}_{j_index}"
 
                             # array right side
                             if "[" in right_part and "]" in right_part:
                                 right_array_parts = right_part.split("[")
                                 right_array = right_array_parts[0].strip()  
-                                right_index_expression = right_array_parts[1].split("]")[0].strip()
-
-                                # split j(version) +1
-                                index_parts = [part.strip() for part in right_index_expression.split("+")]
-                                processed_index_parts = []
-
-                                # check variable version for variable e.g j in j+1
-                                for part in index_parts:
-                                    if part == "j":
-                                        part = f"{part}{self.get_current_variable_version(part)}"
-                                    elif part.isdigit():
-                                        pass # is constant so do nothing
-                                    processed_index_parts.append(part)
-
-                                # join the parts again
-                                processed_index_expression = "+".join(processed_index_parts)
-                                right_array_access = f"{right_array}{self.get_current_variable_version(right_array)}[{processed_index_expression}]"
+                                right_index = right_array_parts[1].split("]")[0].strip()
+                                
+                                # Get current loop indices for right side
+                                right_i_index = self.get_current_variable_version('i')
+                                right_j_index = self.get_current_variable_version('j')
+                                
+                                # Use new versioning scheme for right side
+                                right_array_access = f"{right_array}{right_i_index}_{right_j_index + 1}"
 
                                 ssa_line = f"{left_array_access} := {right_array_access}"
                                 self.ssa_lines.append(ssa_line)
 
                                 # print(f"SSA assignment: {ssa_line}")
-                            
-                            # if expressions have temp in it
+                           
                             elif right_part == "temp":
-                                ssa_line = f"{right_array_access} := temp{self.get_current_variable_version('temp')}"
+                                ssa_line = f"{left_array_access} := temp{self.get_current_variable_version('temp')}"
                                 self.ssa_lines.append(ssa_line)
                             
                             elif left_part == "temp":
