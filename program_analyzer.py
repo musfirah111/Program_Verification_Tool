@@ -370,9 +370,13 @@ class ProgramVerifierAndEquivalenceChecker:
                                     self.ssa_lines.append(f"{new_left_access} := {right_array_access}")
                                     self.ssa_lines.append(f"{new_right_access} := {temp_var}")
 
+                                    # new array instances for phi conditions
+                                    new_cond_left_access = f"{left_array_name}{left_index}_{left_version + 2}"
+                                    new_cond_right_access = f"{right_array_name}{right_index}_{right_version + 2}"
+                                    
                                     # Add backtracking assignments
-                                    self.ssa_lines.append(f"{new_left_access} := φ{condition_number} ? {new_left_access} : {left_array_access}")
-                                    self.ssa_lines.append(f"{new_right_access} := φ{condition_number} ? {new_right_access} : {right_array_access}")
+                                    self.ssa_lines.append(f"{new_cond_left_access} := φ{condition_number} ? {new_left_access} : {left_array_access}")
+                                    self.ssa_lines.append(f"{new_cond_right_access} := φ{condition_number} ? {new_right_access} : {right_array_access}")
 
                 elif "temp" in line:
                     ssa_line, var = self.ssa_assignment(line)
