@@ -334,13 +334,19 @@ class ProgramVerifierAndEquivalenceChecker:
                                     right_array_name = right_array_parts[0].strip()
                                     right_index = right_array_parts[1].split("]")[0].strip()
 
-                                    # Get current loop indices
-                                    i_index = self.get_current_variable_version('i')
-                                    j_index = self.get_current_variable_version('j')
+                                    # Evaluate indices (j and j+1 to actual numbers)
+                                    left_index = left_index.replace('j', str(self.get_current_variable_version('j')))
+                                    right_index = right_index.replace('j', str(self.get_current_variable_version('j')))
+                                    right_index = right_index.replace('+1', '')  # Remove the +1
+                                    right_index = str(int(right_index) + 1)  # Add 1 to the index
 
-                                    # Create array accesses with loop indices
-                                    left_array_access = f"{left_array_name}{i_index}_{j_index}"
-                                    right_array_access = f"{right_array_name}{i_index}_{j_index + 1}"
+                                    # Get current versions
+                                    left_version = self.get_current_variable_version(left_array_name)
+                                    right_version = self.get_current_variable_version(right_array_name)
+                                    
+                                    # Create array accesses with evaluated indices
+                                    left_array_access = f"{left_array_name}{left_index}_{left_version}"
+                                    right_array_access = f"{right_array_name}{right_index}_{right_version}"
 
                                     # Create the condition line
                                     self.condition_counter += 1
@@ -354,12 +360,12 @@ class ProgramVerifierAndEquivalenceChecker:
                                     self.ssa_lines.append(f"{temp_var} := {left_array_access}")
                                     
                                     # Increment versions for the swap
-                                    self.variable_versions[left_array_name] = self.get_current_variable_version(left_array_name) + 1
-                                    self.variable_versions[right_array_name] = self.get_current_variable_version(right_array_name) + 1
+                                    self.variable_versions[left_array_name] = left_version + 1
+                                    self.variable_versions[right_array_name] = right_version + 1
                                     
                                     # Create new array accesses with incremented versions
-                                    new_left_access = f"{left_array_name}{i_index}_{j_index + 1}"
-                                    new_right_access = f"{right_array_name}{i_index}_{j_index + 2}"
+                                    new_left_access = f"{left_array_name}{left_index}_{left_version + 1}"
+                                    new_right_access = f"{right_array_name}{right_index}_{right_version + 1}"
                                     
                                     self.ssa_lines.append(f"{new_left_access} := {right_array_access}")
                                     self.ssa_lines.append(f"{new_right_access} := {temp_var}")
@@ -395,20 +401,21 @@ class ProgramVerifierAndEquivalenceChecker:
                             if "[" in right_part and "]" in right_part:
                                 right_array_parts = right_part.split("[")
                                 right_array = right_array_parts[0].strip()  
-                                right_index = right_array_parts[1].split("]")[0].strip()
+                                right_index_expression = right_array_parts[1].split("]")[0].strip()
                                 
                                 # Get current loop indices for right side
                                 right_i_index = self.get_current_variable_version('i')
                                 right_j_index = self.get_current_variable_version('j')
                                 
                                 # Use new versioning scheme for right side
-                                right_array_access = f"{right_array}{right_i_index}_{right_j_index + 1}"
+                                right_array_access = f"{right_array}{right_i_index}_{right_j_index}"
 
                                 ssa_line = f"{left_array_access} := {right_array_access}"
                                 self.ssa_lines.append(ssa_line)
 
                                 # print(f"SSA assignment: {ssa_line}")
-                           
+                            
+                            # if expressions have temp in it
                             elif right_part == "temp":
                                 ssa_line = f"{left_array_access} := temp{self.get_current_variable_version('temp')}"
                                 self.ssa_lines.append(ssa_line)
