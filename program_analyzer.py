@@ -1,5 +1,6 @@
 from z3 import Solver, Int, If, sat
 
+############################################################# Class for program verification.
 class ProgramVerifierAndEquivalenceChecker:
     def __init__(self):
         # To keep track of latest versions for each variable.
@@ -315,7 +316,7 @@ class ProgramVerifierAndEquivalenceChecker:
 
             i += 1
 
-# Class that changes SSA into SMT code.
+############################################################# Class that changes SSA into SMT code.
 class SSAToSMTCoverter:
     def __init__(self):
 
@@ -429,11 +430,14 @@ def convert_infix_to_prefix(expression):
 
     return f"({operator} {var1} {var2})"
 
-
+############################################################# Class that solves SMT code.
 class SMTSolver:
     def __init__(self):
         # Make a z3 solver instance.
         self.z3_solver = Solver()
+
+        # Dictionary for storing actual z3 variables.
+        self.z3_variables = {}
 
     def smt_solver(self, smt_code_lines):
         for line in smt_code_lines:
@@ -449,27 +453,56 @@ class SMTSolver:
                 # z3 variable making.
                 if data_type == "Int":
                     #  smt_variable = Int("x")
-                    smt_variable = Int(variable_name)
+                    #smt_variable = Int(variable_name)
 
                 # Save varible using its name to be used later.
                 # self.x = Int("x")
                 # setattr(self, variable_name, smt_variable)
+                    self.z3_variables[variable_name] = Int(variable_name)
 
             # If line is an assert statement.
             elif line.startswith('(assert'):
-                # (assert(= x 10))
-                assert_without_brackets = line[1:-1] # assert(= x 10)
-                expression = assert_without_brackets.split("=", 1)  # Split by '='
+                inner_expression = line[len('(assert ('):-2].strip() # = x 10
+                #print("inner ex:",inner_expression)
 
-                if len(expression) == 2:
-                    left_expr = expression[0].strip()
-                    right_expr = expression[1].strip()
+                if inner_expression.startswith('='): # = x 10
+                    inner_expression = inner_expression[2:] # x 10
+                    parts = inner_expression.split(maxsplit=1) # x0 10
+                    print("parta[0]: ", parts[0])
+                    print("parts[1]:", parts[1])
+
+
+                    if len(parts) == 2:
+                        left_expr = parts[0].strip()
+                        right_expr = parts[1].strip()
+                        print("LEFT:",left_expr)
+                        print("RIGHT",right_expr)
 
                     # Convert these expressions into proper Z3 syntax.
                     if right_expr.isdigit():  # if it's a number, we directly use it.
-                        self.z3_solver.add(Int(left_expr) == int(right_expr))
+                        self.z3_solver.add(self.z3_variables[left_expr] == int(right_expr))
                     else:  # otherwise it's a variable or an expression.
-                        self.z3_solver.add(Int(left_expr) == Int(right_expr))
+                        # (+ y0 1)
+                        ex = right_expr[1:-1].split()
+                        p1 = ex[0] # + / ite
+                        p2 = ex[1] # y0
+                        p3 = ex[2] # 1
+                        print("p1: ", p1)
+                        print("p2: ", p2)
+                        print("p3: ", p3)
+
+                        if p1 == '+':
+                            self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] + int(p3))
+                        elif p1 == '-':
+                            self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] - int(p3))
+                        elif p1 == 'ite': # Handle conditions.
+                            cond = ex[1]
+                            then_expression = ex[2]
+                            else_expression = ex[3]
+                            self.z3_solver.add(self.z3_variables[left_expr] ==
+                            If(self.z3_variables[cond] != 0,  # non-zero means true.
+                                self.z3_variables[then_expression],
+                                self.z3_variables[else_expression]))
 
         # Check results.
         result = self.z3_solver.check()
@@ -531,7 +564,7 @@ if __name__ == "__main__":
 
     print("=== Program Verifier & SSA Conversion ===")
     verifier = ProgramVerifierAndEquivalenceChecker()
-    verifier.convert_into_ssa(code_lines2)
+    verifier.convert_into_ssa(code_lines)
 
     print("\nSSA Code:")
     for line in verifier.ssa_lines:
