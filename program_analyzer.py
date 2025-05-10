@@ -529,6 +529,18 @@ class SMTSolver:
                             else:
                                 self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] - self.z3_variables[p3])
 
+                        elif p1 == '*':
+                            if p3.isdigit():
+                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] * int(p3))
+                            else:
+                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] * self.z3_variables[p3])
+
+                        elif p1 == '/':
+                            if p3.isdigit():
+                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] / int(p3))
+                            else:
+                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] / self.z3_variables[p3])
+
                         elif p1 == 'ite': # Handle conditions.
                             cond = ex[1]
                             then_expression = ex[2]
@@ -573,80 +585,38 @@ class ProgramEquivalenceChecker:
         self.program_verifier = ProgramVerifier()
         self.ssa_to_smt_converter = SSAToSMTCoverter()
         self.smt_solver = SMTSolver()
+    
+    # FunctiOn that add prefixes to each of the 2 program variables so when combined to check equivalence, they can be differentiated. e.g. if x exists in both prorgram 1 and 2, now it will be p1_x for program 1 and p2_x for program 2.
+    def add_prefixes_to_smt_variables(self, smt_lines, prefix):
+        variable_matching = {}
+        lines_with_prefixes = []
 
-    def add_prefixes_to_variables(self, ssa_lines, prefix):
-        variable_matching ={} # Maps OG variable names to their prefixed versions.
-        # { x: p1_x }
-        lines_with_prefixes = [] # Stores lines after they have been prefixed.
-
-         # First pass: map all LHS variables.
-        for line in ssa_lines:
-            if "=" in line:
-                left_part = line.split("=", 1)[0].strip()
-                variable_matching[left_part] = f"{prefix}_{left_part}"
-
-        # Second pass: replace the og vars.
-        for line in ssa_lines:
+        for line in smt_lines:
             new_line = line
 
-            # Regular assignment ----------- 1st CASE
-            # Example:
-            # Original: x2 = x1 + 1
-            # Mapping: { x1: p1_x1, x2: p1_x2 }
-            # Result : p1_x2 = p1_x1 + 1
-            if "=" in line and not line.strip().startswith("φ") and "?" not in line:
-                left_part, right_part = line.split("=", 1) # x2, x1 + 1
-                left_variable_name = left_part.strip() # x2
-                #prefixed_variable_name = f"{prefix}_{left_variable_name}" # p1_x
-                prefixed_left_part = variable_matching[left_variable_name] # Get prefixed version (e.g., p1_x2)
+            # Declare line. (declare-const x Int)
+            if line.startswith("(declare-const"):
+                tokens = line.strip("()").split() # ['declare-const', 'x', 'Int']
+                var_name = tokens[1] # x
+                prefixed_name = f"{prefix}_{var_name}" # p1_x
+                variable_matching[var_name] = prefixed_name # { 'x': 'p1_x' }
+                new_line = f"(declare-const {prefixed_name} Int)" # (declare-const p1_x Int)
 
-                # Now, replace the variables in the right hand side of the expression.
-                further_right_parts = right_part.strip().split() # ['x1', '+', '1']
-                for i, part in enumerate(further_right_parts):
-                    if part in variable_matching:
-                        further_right_parts[i] = variable_matching[part]  # e.g., 'x1' -> 'p1_x1'
-                new_right_part = " ".join(further_right_parts) # 'p1_x1 + 1' 
-                
-                print("\nLINE c1:", line)
-                prefixed_line = f"{prefixed_left_part} = {new_right_part}" # p1_x = p1_y + p1_z
-                print("PREFIXED LINE c1:", prefixed_line)
-                print()
+            # Assert line. (assert (> x 5))
+            elif line.startswith("(assert"):
+                for var, prefixed_var in variable_matching.items():
+                    # Replace 'x' with 'p1_x' in the assertion.
+                    # (assert (> x 5)) -> (assert (> p1_x 5))
+                    line = line.replace(var, prefixed_var) 
+                new_line = line
 
-            # For handling condition variables. ---------- 2nd CASE
-            # Original: φ1 = (x0 < 4)
-            # Mapping: { x0: p1_x0, φ1: p1_φ1 }
-            # Result : p1_φ1 = (p1_x0 < 4)
-            elif line.startswith('φ'):
-                condition_variable, condition = line.split("=") # use 1 in sp
-                condition_variable = condition_variable.strip() # φ1
-                prefixed_condition = variable_matching[condition_variable] # p1_φ1
-
-                # Replace variables inside condition string.
-                for variable, prefixed_version in variable_matching.items():
-                    condition = condition.replace(variable, prefixed_version) # (x0 < 4) -> (p1_x0 < 4)
-
-                condition = condition.strip()
-
-                print("\nLINE c2:", line)
-                prefixed_line = f"{prefixed_condition} = {condition}" 
-                print("PREFIXED LINE c2:", prefixed_line)
-
-            # AHndling of COnditional assignmetns. ----------- 3rd CASe
-            # Originl: x5 = φ1 ? x4 : x3
-            # Mapping: { φ1: p1_φ1, x4: p1_x4, x3: p1_x3, x5: p1_x5 }
-            # Result : p1_x5 = p1_φ1 ? p1_x4 : p1_x3
-            elif '?' in line and ':' in line:
-                left_part, right_part = line.split("=") # ['x5', 'φ1 ? x4 : x3']
-                left_variable = left_part.strip() # x5
-                prefixed_left_variable = variable_matching[left_variable] # p1_x5
-
-                # Dividng right hand side into parts. φ1 ? x4 : x3
-                condition_Part, true_false_part = right_part.split("?") # ['φ1 ', ' x4 : x3']
-                true_part, false_part = true_false_part.split(":") # [' x4 ', ' x3']
+            lines_with_prefixes.append(new_line)
 
         return lines_with_prefixes, variable_matching
     
-
+    # Function that returns the final versions of the variables so equivalence can be checked.
+    def get_final_variable_versions(self, ssa_lines):
+        print()
 
     def check_program_equivalence(self, input_program_1_lines, input_program_2_lines):
         # Convert both programs into SSA format.
@@ -668,6 +638,10 @@ class ProgramEquivalenceChecker:
         for line in program_2_ssa:
             print(line)
 
+        # Find the final variables in each program.
+        p1_final_variabless = self.get_final_variable_versions(program_1_ssa)
+        p2_final_variables = self.get_final_variable_versions(program_2_ssa)
+
         # Convert both SSA forma in SMT code.
         # Program 01.
         self.ssa_to_smt_convertersmt_variables = {}  
@@ -687,30 +661,34 @@ class ProgramEquivalenceChecker:
         for line in program_2_smt:
             print(line)
 
-        # Add prefixes to variables in both programs.
-        program_1_ssa_prefixed, p1_mapping = self.add_prefixes_to_variables(program_1_ssa, "p1")
-        program_2_ssa_prefixed, p2_mapping = self.add_prefixes_to_variables(program_2_ssa, "p2")
+        # Apply prefixes to SMT variables
+        program_1_smt_prefixed, p1_mapping = self.add_prefixes_to_smt_variables(program_1_smt, "p1")
+        program_2_smt_prefixed, p2_mapping = self.add_prefixes_to_smt_variables(program_2_smt, "p2")
 
          # Combine SMT code from both programs (excluding check-sat and get-model).
         combined_smt = []
         
         # Add variable declarations from both programs.
-        for line in program_1_smt:
+        for line in program_1_smt_prefixed:
             if line.startswith("(declare-const"):
                 combined_smt.append(line)
         
-        for line in program_2_smt:
+        for line in program_2_smt_prefixed:
             if line.startswith("(declare-const"):
                 combined_smt.append(line)
         
         # Add assertions from both programs.
-        for line in program_1_smt:
+        for line in program_1_smt_prefixed:
             if line.startswith("(assert"):
                 combined_smt.append(line)
         
-        for line in program_2_smt:
+        for line in program_2_smt_prefixed:
             if line.startswith("(assert"):
                 combined_smt.append(line)
+
+        print("\nCombined SMT code:")
+        for line in combined_smt:
+            print(line)
 
 # Function to convert list of lines of code in a single string.
 def code_lines_to_string_converter(code_lines_list):
@@ -744,7 +722,7 @@ if __name__ == "__main__":
 
     print("=== Program Verifier & SSA Conversion ===")
     verifier = ProgramVerifier()
-    verifier.convert_into_ssa(code_lines)
+    verifier.convert_into_ssa(code_lines2)
 
     print("\nSSA Code:")
     for line in verifier.ssa_lines:
@@ -772,4 +750,4 @@ if __name__ == "__main__":
 
     print("\n=== Programs Equivalence Checker ===")
     program_verifier = ProgramEquivalenceChecker()
-    program_verifier.check_program_equivalence(code_lines, code_lines2)
+    program_verifier.check_program_equivalence(code_lines, code_lines)
