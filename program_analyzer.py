@@ -755,9 +755,8 @@ class ProgramVerifier:
             
             if nested_for:
                 i = j
-            
-            if while_loop:
-                i += 1
+            else:
+                i+=1
 
     def get_versioned_variable(self, variable):
         if variable in self.variable_versions:
@@ -1315,4 +1314,4 @@ def test_ssa_conversion():
         print(line)
 
 if __name__ == "__main__":
-    main()
+    test_ssa_conversion()
