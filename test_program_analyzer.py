@@ -1,20 +1,38 @@
-from program_analyzer import ProgramVerifierAndEquivalenceChecker
+from program_analyzer import ProgramEquivalenceChecker
 
-code_lines = [
-    "x := 3;",
-    "if (x < 5) {",
-    "y := x + 1;",
-    "} else {",
-    "y := x - 1;",
-    "}",
-    "assert(y > 0);"
-]
+def test_equivalence_checker():
+    checker = ProgramEquivalenceChecker()
 
-analyzer = ProgramVerifierAndEquivalenceChecker()
-analyzer.convert_into_ssa(code_lines)
-for line in analyzer.ssa_lines:
-    print(line) 
+    print("===== Test Case 1: Equivalent Programs =====")
+    program1 = [
+        "x := 0",
+        "x := x + 1",
+        "x := x + 2"
+    ]
 
-# text = "x := 5"
-# result = text.split(":=", 1)
-# print(result)
+    program2 = [
+        "x := 0",
+        "x := x + 3"
+    ]
+
+    result, _ = checker.check_program_equivalence(program1, program2)
+    print("Are Programs Equivalent?", result)
+    print("\n")
+
+    print("===== Test Case 2: Non-Equivalent Programs =====")
+    program3 = [
+        "x := 0",
+        "x := x + 1",
+        "x := x + 2"
+    ]
+
+    program4 = [
+        "x := 0",
+        "x := x + 4"
+    ]
+
+    result, _ = checker.check_program_equivalence(program3, program4)
+    print("Are Programs Equivalent?", result)
+
+if __name__ == "__main__":
+    test_equivalence_checker()
