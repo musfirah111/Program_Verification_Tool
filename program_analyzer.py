@@ -1,7 +1,7 @@
 from z3 import Solver, Int, If, sat
 
 ############################################################# Class for program verification.
-class ProgramVerifierAndEquivalenceChecker:
+class ProgramVerifier:
     def __init__(self):
         # To keep track of latest versions for each variable.
         self.variable_versions = {}
@@ -131,7 +131,7 @@ class ProgramVerifierAndEquivalenceChecker:
 
                 # new_variable := φcondition_number ? true_version : false_version
                 cond_backtrack_line = (
-                    f"{new_versioned_name} := φ{change['condition']} ? "
+                    f"{new_versioned_name} = φ{change['condition']} ? "
                     f"{variable}{change['true_version']} : {variable}{change['false_version']}"
                 )
 
@@ -167,7 +167,7 @@ class ProgramVerifierAndEquivalenceChecker:
        
 
         # Add the line in the Single Static Assignment Lines after combing both the LHS and the RHS.
-        ssa_line = f"{ssa_var} := {righthandsideEq}"
+        ssa_line = f"{ssa_var} = {righthandsideEq}"
 
         return ssa_line, lefthandsideVar
     
@@ -332,11 +332,13 @@ class SSAToSMTCoverter:
         # List to store the SMT assertions
         self.smt_assertions = []
 
+        self.condition_mapping = {}  # φ-condition -> condX
+
     # Function to convert ssa assignment line in smt code.
     def convert_assignment_line_in_smt(self, ssa_line):
         condition_representation = "φ"
 
-        left_part, right_part = ssa_line.split(":=")
+        left_part, right_part = ssa_line.split("=")
         left_part = left_part.strip()
         right_part = right_part.strip()
 
@@ -370,6 +372,9 @@ class SSAToSMTCoverter:
             
             # Convert arithmetic operations to SMT prefix notation.
             right_part = convert_infix_to_prefix(right_part)
+
+            if "φ" in left_part:
+                left_part = left_part.replace("φ", "cond")
             
             smt_line = f"(assert (= {left_part} {right_part}))"
             self.smt_assertions.append(smt_line)
@@ -378,20 +383,25 @@ class SSAToSMTCoverter:
     def convert_ssa_to_smt(self, ssa_lines):
         # Iterate through every line in ssa.
         for line in ssa_lines:
-            if ':=' in line:
-                parts = line.split(':=')
+            if '=' in line:
+                parts = line.split('=')
                 left_part = parts[0]
                 left_part = left_part.strip() # Get the assigned variable.
 
                 # Add this variable to smt variables if it is not already present there.
                 if left_part not in self.smt_variables:
-                    self.smt_variables[left_part] = left_part
+                    if "φ" in left_part:
+                        left_part = left_part.replace("φ", "cond")
+                        self.smt_variables[left_part] = left_part
+                    else:
+                        self.smt_variables[left_part] = left_part
         
         # Conert ssa assignment line to smt code.
         for line in ssa_lines:
-            if ':=' in line:
+            if '=' in line:
                 self.convert_assignment_line_in_smt(line)
 
+    # Function that returns list of smt code.
     def get_smt(self):
         smt_output = []
 
@@ -406,12 +416,12 @@ class SSAToSMTCoverter:
 
         return smt_output
     
-class ProgramEquivalenceChecker:
-    def __init__(self):
-        print()
-
+# Function to convert infix expression into postfix.    
 def convert_infix_to_prefix(expression):
     expression = expression.strip()
+
+    if expression.startswith('(') and expression.endswith(')'):
+        expression = expression[1:-1].strip()
 
     if '+' in expression:
         parts = expression.split('+')
@@ -422,6 +432,12 @@ def convert_infix_to_prefix(expression):
     elif '*' in expression:
         parts = expression.split('*')
         operator = '*'
+    elif '>' in expression:
+        parts = expression.split('>')
+        operator = '>'
+    elif '<' in expression:
+        parts = expression.split('<')
+        operator = '<'
     else:
         return expression 
 
@@ -532,7 +548,100 @@ class SMTSolver:
             }
 
         return result_final
+    
+############################################################# Class for program equivalence.
+class ProgramEquivalenceChecker:
+    def __init__(self):
+        self.program_verifier = ProgramVerifier()
+        self.ssa_to_smt_converter = SSAToSMTCoverter()
+        self.smt_solver = SMTSolver()
 
+    def add_prefixes_to_variables(self, ssa_lines, prefix):
+        variable_matching ={} # Maps OG variable names to their prefixed versions.
+        # { x: p1_x }
+        lines_with_prefixes = [] # Stores lines after they have been prefixed.
+
+        for line in ssa_lines:
+            new_line = line
+
+            # Regular assignment. 
+            # E.g. (x = y + z)
+            if "=" in line:
+                left_part, right_part = line.split("=", 1) # x, y + z
+                variable_name = left_part.strip() # x
+                prefixed_variable_name = f"{prefix}_{variable_name}" # p1_x
+                variable_matching[variable_name] = prefixed_variable_name # { x: p1_x }
+
+                # Now, replace the variables in the right hand side of the expression.
+                for og_variable, prefixed_variable in variable_matching.items():
+                    right_part = right_part.replace(og_variable, prefixed_variable)
+
+    def check_program_equivalence(self, input_program_1_lines, input_program_2_lines):
+
+        # Convert both programs into SSA format.
+        # Program 01.
+        self.program_verifier.variable_versions = {}
+        self.program_verifier.ssa_lines = []
+        self.program_verifier.convert_into_ssa(input_program_1_lines)
+        program_1_ssa = self.program_verifier.ssa_lines.copy()
+        print("\nProgram 1 SSA Form:")
+        for line in program_1_ssa:
+            print(line)
+
+        # Program 02.
+        self.program_verifier.variable_versions = {}  
+        self.program_verifier.ssa_lines = []  
+        self.program_verifier.convert_into_ssa(input_program_2_lines)
+        program_2_ssa = self.program_verifier.ssa_lines.copy()
+        print("\nProgram 2 SSA Form:")
+        for line in program_2_ssa:
+            print(line)
+
+        # Convert both SSA forma in SMT code.
+        # Program 01.
+        self.ssa_to_smt_convertersmt_variables = {}  
+        self.ssa_to_smt_converter.smt_assertions = []  
+        self.ssa_to_smt_converter.convert_ssa_to_smt(program_1_ssa)
+        program_1_smt = self.ssa_to_smt_converter.get_smt()
+        print("\nProgram 1 SMT Form:")
+        for line in program_1_smt:
+            print(line)
+
+        # Program 02.
+        self.ssa_to_smt_convertersmt_variables = {}  
+        self.ssa_to_smt_converter.smt_assertions = []  
+        self.ssa_to_smt_converter.convert_ssa_to_smt(program_2_ssa)
+        program_2_smt = self.ssa_to_smt_converter.get_smt()
+        print("\nProgram 2 SMT Form:")
+        for line in program_2_smt:
+            print(line)
+
+        # Add prefixes to variables in both programs.
+        program_1_ssa_prefixed, p1_mapping = self.add_prefixes_to_variables(program_1_ssa, "p1")
+        program_2_ssa_prefixed, p2_mapping = self.add_prefixes_to_variables(program_2_ssa, "p2")
+
+         # Combine SMT code from both programs (excluding check-sat and get-model).
+        combined_smt = []
+        
+        # Add variable declarations from both programs.
+        for line in program_1_smt:
+            if line.startswith("(declare-const"):
+                combined_smt.append(line)
+        
+        for line in program_2_smt:
+            if line.startswith("(declare-const"):
+                combined_smt.append(line)
+        
+        # Add assertions from both programs.
+        for line in program_1_smt:
+            if line.startswith("(assert"):
+                combined_smt.append(line)
+        
+        for line in program_2_smt:
+            if line.startswith("(assert"):
+                combined_smt.append(line)
+
+# Function to convert list of lines of code in a single string.
 def code_lines_to_string_converter(code_lines_list):
     result = "" 
 
@@ -563,7 +672,7 @@ if __name__ == "__main__":
     ]
 
     print("=== Program Verifier & SSA Conversion ===")
-    verifier = ProgramVerifierAndEquivalenceChecker()
+    verifier = ProgramVerifier()
     verifier.convert_into_ssa(code_lines)
 
     print("\nSSA Code:")
@@ -589,3 +698,7 @@ if __name__ == "__main__":
         print("Model:")
         for var, val in result['model'].items():
             print(f"  {var} = {val}")
+
+    # print("\n=== Program Verifier ===")
+    # program_verifier = ProgramEquivalenceChecker()
+    # program_verifier.check_program_equivalence(code_lines, code_lines2)
