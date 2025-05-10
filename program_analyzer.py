@@ -445,6 +445,7 @@ def convert_infix_to_prefix(expression):
     var2 = parts[1].strip()
 
     return f"({operator} {var1} {var2})"
+    
 
 ############################################################# Class that solves SMT code.
 class SMTSolver:
@@ -454,6 +455,10 @@ class SMTSolver:
 
         # Dictionary for storing actual z3 variables.
         self.z3_variables = {}
+
+    def declare_if_needed(self, var_name):
+        if var_name not in self.z3_variables and not var_name.isdigit():
+            self.z3_variables[var_name] = Int(var_name)
 
     def smt_solver(self, smt_code_lines):
         for line in smt_code_lines:
@@ -506,11 +511,24 @@ class SMTSolver:
                         print("p1: ", p1)
                         print("p2: ", p2)
                         print("p3: ", p3)
+                        
+                        self.declare_if_needed(left_expr)
+                        self.declare_if_needed(p2)
+                        self.declare_if_needed(p3)
 
                         if p1 == '+':
-                            self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] + int(p3))
+                            # Check if p3 is a digit (constant) or a variable.
+                            if p3.isdigit():
+                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] + int(p3))
+                            else:
+                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] + self.z3_variables[p3])
+
                         elif p1 == '-':
-                            self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] - int(p3))
+                            if p3.isdigit():
+                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] - int(p3))
+                            else:
+                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] - self.z3_variables[p3])
+
                         elif p1 == 'ite': # Handle conditions.
                             cond = ex[1]
                             then_expression = ex[2]
@@ -561,23 +579,76 @@ class ProgramEquivalenceChecker:
         # { x: p1_x }
         lines_with_prefixes = [] # Stores lines after they have been prefixed.
 
+         # First pass: map all LHS variables.
+        for line in ssa_lines:
+            if "=" in line:
+                left_part = line.split("=", 1)[0].strip()
+                variable_matching[left_part] = f"{prefix}_{left_part}"
+
+        # Second pass: replace the og vars.
         for line in ssa_lines:
             new_line = line
 
-            # Regular assignment. 
-            # E.g. (x = y + z)
-            if "=" in line:
-                left_part, right_part = line.split("=", 1) # x, y + z
-                variable_name = left_part.strip() # x
-                prefixed_variable_name = f"{prefix}_{variable_name}" # p1_x
-                variable_matching[variable_name] = prefixed_variable_name # { x: p1_x }
+            # Regular assignment ----------- 1st CASE
+            # Example:
+            # Original: x2 = x1 + 1
+            # Mapping: { x1: p1_x1, x2: p1_x2 }
+            # Result : p1_x2 = p1_x1 + 1
+            if "=" in line and not line.strip().startswith("φ") and "?" not in line:
+                left_part, right_part = line.split("=", 1) # x2, x1 + 1
+                left_variable_name = left_part.strip() # x2
+                #prefixed_variable_name = f"{prefix}_{left_variable_name}" # p1_x
+                prefixed_left_part = variable_matching[left_variable_name] # Get prefixed version (e.g., p1_x2)
 
                 # Now, replace the variables in the right hand side of the expression.
-                for og_variable, prefixed_variable in variable_matching.items():
-                    right_part = right_part.replace(og_variable, prefixed_variable)
+                further_right_parts = right_part.strip().split() # ['x1', '+', '1']
+                for i, part in enumerate(further_right_parts):
+                    if part in variable_matching:
+                        further_right_parts[i] = variable_matching[part]  # e.g., 'x1' -> 'p1_x1'
+                new_right_part = " ".join(further_right_parts) # 'p1_x1 + 1' 
+                
+                print("\nLINE c1:", line)
+                prefixed_line = f"{prefixed_left_part} = {new_right_part}" # p1_x = p1_y + p1_z
+                print("PREFIXED LINE c1:", prefixed_line)
+                print()
+
+            # For handling condition variables. ---------- 2nd CASE
+            # Original: φ1 = (x0 < 4)
+            # Mapping: { x0: p1_x0, φ1: p1_φ1 }
+            # Result : p1_φ1 = (p1_x0 < 4)
+            elif line.startswith('φ'):
+                condition_variable, condition = line.split("=") # use 1 in sp
+                condition_variable = condition_variable.strip() # φ1
+                prefixed_condition = variable_matching[condition_variable] # p1_φ1
+
+                # Replace variables inside condition string.
+                for variable, prefixed_version in variable_matching.items():
+                    condition = condition.replace(variable, prefixed_version) # (x0 < 4) -> (p1_x0 < 4)
+
+                condition = condition.strip()
+
+                print("\nLINE c2:", line)
+                prefixed_line = f"{prefixed_condition} = {condition}" 
+                print("PREFIXED LINE c2:", prefixed_line)
+
+            # AHndling of COnditional assignmetns. ----------- 3rd CASe
+            # Originl: x5 = φ1 ? x4 : x3
+            # Mapping: { φ1: p1_φ1, x4: p1_x4, x3: p1_x3, x5: p1_x5 }
+            # Result : p1_x5 = p1_φ1 ? p1_x4 : p1_x3
+            elif '?' in line and ':' in line:
+                left_part, right_part = line.split("=") # ['x5', 'φ1 ? x4 : x3']
+                left_variable = left_part.strip() # x5
+                prefixed_left_variable = variable_matching[left_variable] # p1_x5
+
+                # Dividng right hand side into parts. φ1 ? x4 : x3
+                condition_Part, true_false_part = right_part.split("?") # ['φ1 ', ' x4 : x3']
+                true_part, false_part = true_false_part.split(":") # [' x4 ', ' x3']
+
+        return lines_with_prefixes, variable_matching
+    
+
 
     def check_program_equivalence(self, input_program_1_lines, input_program_2_lines):
-
         # Convert both programs into SSA format.
         # Program 01.
         self.program_verifier.variable_versions = {}
@@ -656,7 +727,7 @@ if __name__ == "__main__":
     code_lines = [
         "x := 0;",
         "while (x < 4) {",
-        "    x := x + 1;",
+        "    x := x + y;",
         "}",
         "assert(x == 4);"
     ]
@@ -699,6 +770,6 @@ if __name__ == "__main__":
         for var, val in result['model'].items():
             print(f"  {var} = {val}")
 
-    # print("\n=== Program Verifier ===")
-    # program_verifier = ProgramEquivalenceChecker()
-    # program_verifier.check_program_equivalence(code_lines, code_lines2)
+    print("\n=== Programs Equivalence Checker ===")
+    program_verifier = ProgramEquivalenceChecker()
+    program_verifier.check_program_equivalence(code_lines, code_lines2)
