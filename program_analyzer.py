@@ -504,51 +504,57 @@ class SMTSolver:
                         self.z3_solver.add(self.z3_variables[left_expr] == int(right_expr))
                     else:  # otherwise it's a variable or an expression.
                         # (+ y0 1)
-                        ex = right_expr[1:-1].split()
-                        p1 = ex[0] # + / ite
-                        p2 = ex[1] # y0
-                        p3 = ex[2] # 1
-                        print("p1: ", p1)
-                        print("p2: ", p2)
-                        print("p3: ", p3)
-                        
-                        self.declare_if_needed(left_expr)
-                        self.declare_if_needed(p2)
-                        self.declare_if_needed(p3)
+                        if right_expr.startswith('(') and right_expr.endswith(')'):
+                            ex = right_expr[1:-1].split()
+                            p1 = ex[0] # + / ite
+                            p2 = ex[1] # y0
+                            p3 = ex[2] # 1
+                            print("p1: ", p1)
+                            print("p2: ", p2)
+                            print("p3: ", p3)
+                            
+                            self.declare_if_needed(left_expr)
+                            self.declare_if_needed(p2)
+                            self.declare_if_needed(p3)
 
-                        if p1 == '+':
-                            # Check if p3 is a digit (constant) or a variable.
-                            if p3.isdigit():
-                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] + int(p3))
-                            else:
-                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] + self.z3_variables[p3])
+                            if p1 == '+':
+                                # Check if p3 is a digit (constant) or a variable.
+                                if p3.isdigit():
+                                    self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] + int(p3))
+                                else:
+                                    self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] + self.z3_variables[p3])
 
-                        elif p1 == '-':
-                            if p3.isdigit():
-                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] - int(p3))
-                            else:
-                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] - self.z3_variables[p3])
+                            elif p1 == '-':
+                                if p3.isdigit():
+                                    self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] - int(p3))
+                                else:
+                                    self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] - self.z3_variables[p3])
 
-                        elif p1 == '*':
-                            if p3.isdigit():
-                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] * int(p3))
-                            else:
-                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] * self.z3_variables[p3])
+                            elif p1 == '*':
+                                if p3.isdigit():
+                                    self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] * int(p3))
+                                else:
+                                    self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] * self.z3_variables[p3])
 
-                        elif p1 == '/':
-                            if p3.isdigit():
-                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] / int(p3))
-                            else:
-                                self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] / self.z3_variables[p3])
+                            elif p1 == '/':
+                                if p3.isdigit():
+                                    self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] / int(p3))
+                                else:
+                                    self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[p2] / self.z3_variables[p3])
 
-                        elif p1 == 'ite': # Handle conditions.
-                            cond = ex[1]
-                            then_expression = ex[2]
-                            else_expression = ex[3]
-                            self.z3_solver.add(self.z3_variables[left_expr] ==
-                            If(self.z3_variables[cond] != 0,  # non-zero means true.
-                                self.z3_variables[then_expression],
-                                self.z3_variables[else_expression]))
+                            elif p1 == 'ite': # Handle conditions.
+                                cond = ex[1]
+                                then_expression = ex[2]
+                                else_expression = ex[3]
+                                self.z3_solver.add(self.z3_variables[left_expr] ==
+                                If(self.z3_variables[cond] != 0,  # non-zero means true.
+                                    self.z3_variables[then_expression],
+                                    self.z3_variables[else_expression]))
+                        else:
+                            # It's a simple variable assignment like (= x y).
+                            self.declare_if_needed(left_expr)
+                            self.declare_if_needed(right_expr)
+                            self.z3_solver.add(self.z3_variables[left_expr] == self.z3_variables[right_expr])
 
         # Check results.
         result = self.z3_solver.check()
@@ -615,8 +621,63 @@ class ProgramEquivalenceChecker:
         return lines_with_prefixes, variable_matching
     
     # Function that returns the final versions of the variables so equivalence can be checked.
+    #   Input: [
+    #         'x0 = 0',
+    #         'x1 = x0 + 1',
+    #         'x2 = x1 + 1',
+    #         'y0 = x2 + 1'
+    #     ]
+    #  Output: { 'x': 'x2', 'y': 'y0' }
     def get_final_variable_versions(self, ssa_lines):
-        print()
+        final_variables = {}
+
+        for line in ssa_lines:
+            if "=" not in line or line.strip().startswith("φ"):
+                continue # Ignore lines that do not have any assignment or φ conditions.
+
+            left_part, right_part = line.split("=") # ['x1', 'x0 + 1']
+            left_part = left_part.strip() # x1
+
+            if left_part.startswith("φ"):
+                continue # Ignore condtion vars liek "φ".
+
+            # get base name, that is, x0 has base name x and y9 has base name y.
+            base = ''
+            for ch in left_part: # x1
+                if not ch.isdigit(): 
+                    base += ch # x
+
+            # versions. x10
+            digits = "" # will eventually hold 10. (in case of x10).
+            for char in left_part:
+                if char.isdigit():
+                    # 1 then 0 so 10
+                    digits += char  # Add digit characters to the string.
+
+            if digits == "":
+                version = 0  # No digits found. x
+            else:
+                version = int(digits)  # Convert the digits to an integer. 10
+
+            # Update if this version id greater than present one.
+            if base not in  final_variables:
+                final_variables[base] = left_part
+            else:
+                var_name = final_variables[base]
+                digits = ""
+                for c in var_name:
+                    if c.isdigit():
+                        digits += c
+
+                if digits == "":
+                    current_version = 0
+                else:
+                    current_version = int(digits)
+
+                if version > current_version:
+                    final_variables[base] = left_part
+
+        return final_variables
 
     def check_program_equivalence(self, input_program_1_lines, input_program_2_lines):
         # Convert both programs into SSA format.
@@ -641,6 +702,13 @@ class ProgramEquivalenceChecker:
         # Find the final variables in each program.
         p1_final_variabless = self.get_final_variable_versions(program_1_ssa)
         p2_final_variables = self.get_final_variable_versions(program_2_ssa)
+        print("Program 1 Final SSA Variables:")
+        for var, final_version in p1_final_variabless.items():
+            print(f"{var} -> {final_version}")
+
+        print("\nProgram 2 Final SSA Variables:")
+        for var, final_version in p2_final_variables.items():
+            print(f"{var} -> {final_version}")
 
         # Convert both SSA forma in SMT code.
         # Program 01.
@@ -686,9 +754,34 @@ class ProgramEquivalenceChecker:
             if line.startswith("(assert"):
                 combined_smt.append(line)
 
+        # Assert stuff to check if final values match. EQUIVALENE PROOF PART HERE.
+        # REMINDER: final_variables = { 'x': 'x2', 'y': 'y10' } -> base name of x2 is x and base name of y10 is y.
+        for base_name in p1_final_variabless:
+            if base_name in p2_final_variables:
+                p1_variable = p1_final_variabless[base_name]
+                p2_variable = p2_final_variables[base_name]
+                p1_prefixed_variable = f"p1_{p1_variable}"
+                p2_prefixed_variable = f"p2_{p2_variable}"
+                combined_smt.append(f"(assert (= {p1_prefixed_variable} {p2_prefixed_variable}))")
+        
+        combined_smt.append("(check-sat)")
+        combined_smt.append("(get-model)")
+
         print("\nCombined SMT code:")
         for line in combined_smt:
             print(line)
+
+        # Solve the combined SMT problem
+        result = self.smt_solver.smt_solver(combined_smt)
+        
+        print("\nEquivalence Check Result:")
+        if result['status'] == 'Satisfiable':
+            print("The programs are equivalent!")
+            print("Model:", result['model'])
+            return True, result
+        else:
+            print("The programs are NOT equivalent!")
+            return False, result
 
 # Function to convert list of lines of code in a single string.
 def code_lines_to_string_converter(code_lines_list):
@@ -750,4 +843,4 @@ if __name__ == "__main__":
 
     print("\n=== Programs Equivalence Checker ===")
     program_verifier = ProgramEquivalenceChecker()
-    program_verifier.check_program_equivalence(code_lines, code_lines)
+    program_verifier.check_program_equivalence(code_lines2, code_lines)
