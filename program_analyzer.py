@@ -139,7 +139,7 @@ class ProgramVerifier:
 
                 # new_variable := φcondition_number ? true_version : false_version
                 cond_backtrack_line = (
-                    f"{new_versioned_name} := φ{change['condition']} ? "
+                    f"{new_versioned_name} = φ{change['condition']} ? "
                     f"{variable}{change['true_version']} : {variable}{change['false_version']}"
                 )
 
@@ -182,7 +182,7 @@ class ProgramVerifier:
                     incremented_value = f"{incremented_variable}{increment_version} + {increment_value}"
 
             # Create SSA assignment for the increment
-            incremented_ssa_line = f"{increment_variable}{increment_version + 1} := {incremented_value}"
+            incremented_ssa_line = f"{increment_variable}{increment_version + 1} = {incremented_value}"
             self.ssa_lines.append(incremented_ssa_line)
             # print("########### variable", increment_variable)
             # print("########### expression", increment_expression)
@@ -204,7 +204,7 @@ class ProgramVerifier:
 
             # Create SSA variable
             ssa_var = self.new_variable_with_count(variable_name)
-            ssa_line = f"{ssa_var} := {constant_value}" 
+            ssa_line = f"{ssa_var} = {constant_value}" 
             #self.ssa_lines.append(ssa_line)
             print("INSIDE FUNCTION -> HANDLING INTIALIZATION", ssa_line)
      
@@ -421,7 +421,7 @@ class ProgramVerifier:
                                         temp_version = self.get_current_variable_version('temp')
                                         temp_var = f"temp{temp_version}"
                                         print(f"{temp_var} := {left_array_access}")
-                                        self.ssa_lines.append(f"{temp_var} := {left_array_access}")
+                                        self.ssa_lines.append(f"{temp_var} = {left_array_access}")
 
                                         self.UpdatingVariablesVersions(left_array_name)
                                         self.UpdatingVariablesVersions(right_array_name)
@@ -433,10 +433,10 @@ class ProgramVerifier:
                                         new_right_access = f"{right_array_name}_{right_version}"
                                         
                                        
-                                        self.ssa_lines.append(f"{new_left_access} := {right_array_access}")
-                                        print(f"#########################{new_left_access} := {right_array_access}")
-                                        self.ssa_lines.append(f"{new_right_access} := {temp_var}")
-                                        print(f"#########################{new_right_access} := {temp_var}")
+                                        self.ssa_lines.append(f"{new_left_access} = {right_array_access}")
+                                        print(f"#########################{new_left_access} = {right_array_access}")
+                                        self.ssa_lines.append(f"{new_right_access} = {temp_var}")
+                                        print(f"#########################{new_right_access} = {temp_var}")
 
                                         self.UpdatingVariablesVersions(left_array_name)
                                         self.UpdatingVariablesVersions(right_array_name)
@@ -452,10 +452,10 @@ class ProgramVerifier:
                                         self.array_index_tracker[i][j][left_index]['new_value'] = new_cond_left_access
                                         self.array_index_tracker[i][j][right_index]['new_value'] = new_cond_right_access
                                         
-                                        self.ssa_lines.append(f"{new_cond_left_access} := φ{condition_number} ? {new_left_access} : {left_array_access}")
-                                        self.ssa_lines.append(f"{new_cond_right_access} := φ{condition_number} ? {new_right_access} : {right_array_access}")
-                                        print(f"{new_cond_left_access} := φ{condition_number} ? {new_left_access} : {left_array_access}")
-                                        print(f"{new_cond_right_access} := φ{condition_number} ? {new_right_access} : {right_array_access}")
+                                        self.ssa_lines.append(f"{new_cond_left_access} = φ{condition_number} ? {new_left_access} : {left_array_access}")
+                                        self.ssa_lines.append(f"{new_cond_right_access} = φ{condition_number} ? {new_right_access} : {right_array_access}")
+                                        print(f"{new_cond_left_access} = φ{condition_number} ? {new_left_access} : {left_array_access}")
+                                        print(f"{new_cond_right_access} = φ{condition_number} ? {new_right_access} : {right_array_access}")
 
                 self.handle_increment_statement(inner_incr_statement)
     
@@ -574,7 +574,7 @@ class ProgramVerifier:
         ssa_var = self.new_variable_with_count(lefthandsideVar)
 
         # Add the line in the Single Static Assignment Lines after combining both the LHS and the RHS.
-        ssa_line = f"{ssa_var} := {righthandsideEq}"
+        ssa_line = f"{ssa_var} = {righthandsideEq}"
         self.ssa_lines.append(ssa_line)
         print(f"Line 454: Added to ssa_lines:", ssa_line)
 
@@ -1312,6 +1312,26 @@ def test_ssa_conversion():
     print("\nSSA Code:")
     for line in verifier.ssa_lines:
         print(line)
+
+    print("\n=== SMT Conversion ===")
+    converter = SSAToSMTCoverter()
+    converter.convert_ssa_to_smt(verifier.ssa_lines)
+    smt_output = converter.get_smt()
+
+    print("\nSMT-LIB Code:")
+    for line in smt_output:
+        print(line)
+
+    print("\n=== Solving SMT with Z3 ===")
+    solver = SMTSolver()
+    result = solver.smt_solver(smt_output)
+
+    print("\nSMT Solver Result:")
+    print(f"Status: {result['status']}")
+    if result['model']:
+        print("Model:")
+        for var, val in result['model'].items():
+            print(f"  {var} = {val}")
 
 if __name__ == "__main__":
     test_ssa_conversion()
